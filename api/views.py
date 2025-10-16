@@ -1,9 +1,7 @@
-# api/views.py
 import os
 import json
-import vertexai
+import google.generativeai as genai
 import assemblyai as aai
-from vertexai.generative_models import GenerativeModel, Part
 from rest_framework import generics, status, views
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
@@ -11,13 +9,26 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from .models import ReadingTask, SpeakingTask, User
 from .serializers import UserSerializer, ReadingTaskSerializer, SpeakingTaskSerializer
 
-# --- Auth Views (No Changes) ---
-class RegisterView(generics.CreateAPIView): # ... same as before
+# --- Configure the Gemini API Key ---
+try:
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        print("--- GEMINI_API_KEY environment variable not found. ---")
+    else:
+        print(f"--- Gemini API Key loaded successfully. Key starts with: {api_key[:4]}... ---")
+    genai.configure(api_key=api_key)
+except Exception as e:
+    print(f"An error occurred during Gemini configuration: {e}")
+
+
+# --- Authentication Views (No Changes) ---
+
+class RegisterView(generics.CreateAPIView):
     queryset = User.objects.all()
     permission_classes = (AllowAny,)
     serializer_class = UserSerializer
 
-class LoginView(generics.GenericAPIView): # ... same as before
+class LoginView(generics.GenericAPIView):
     permission_classes = (AllowAny,)
     def post(self, request, *args, **kwargs):
         username = request.data.get('username')
@@ -30,6 +41,7 @@ class LoginView(generics.GenericAPIView): # ... same as before
 
 
 # --- Task Topic List Views (No Changes) ---
+
 class ReadingTaskListView(generics.ListAPIView):
     queryset = ReadingTask.objects.all()
     serializer_class = ReadingTaskSerializer
@@ -41,15 +53,15 @@ class SpeakingTaskListView(generics.ListAPIView):
     permission_classes = [IsAuthenticated]
 
 
-# --- NEW DYNAMIC GENERATION VIEWS ---
+# --- DYNAMIC GENERATION VIEWS (Using correct model name) ---
+
 class GenerateReadingTaskView(views.APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, pk, *args, **kwargs):
         try:
             task_topic = ReadingTask.objects.get(pk=pk).title
-            vertexai.init(project=os.environ.get('GCP_PROJECT_ID'), location="us-central1")
-            model = GenerativeModel("gemini-1.5-flash-001")
+            model = genai.GenerativeModel("gemini-2.5-flash") # <-- CHANGE HERE
             
             prompt = f"""
             You are a content creator for the TOEFL exam. Your task is to generate a complete reading test based on a given topic.
@@ -84,7 +96,6 @@ class GenerateReadingTaskView(views.APIView):
             }}
             """
             response = model.generate_content(prompt)
-            # Clean the response to ensure it's valid JSON
             cleaned_response_text = response.text.strip().replace("```json", "").replace("```", "")
             json_data = json.loads(cleaned_response_text)
             return Response(json_data)
@@ -92,6 +103,7 @@ class GenerateReadingTaskView(views.APIView):
         except ReadingTask.DoesNotExist:
             return Response({'error': 'Task topic not found'}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
+            print(f"ERROR in GenerateReadingTaskView: {repr(e)}")
             return Response({'error': f"Failed to generate task: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class GenerateSpeakingTaskView(views.APIView):
@@ -100,8 +112,7 @@ class GenerateSpeakingTaskView(views.APIView):
     def get(self, request, pk, *args, **kwargs):
         try:
             task = SpeakingTask.objects.get(pk=pk)
-            vertexai.init(project=os.environ.get('GCP_PROJECT_ID'), location="us-central1")
-            model = GenerativeModel("gemini-1.5-flash-001")
+            model = genai.GenerativeModel("gemini-2.5-flash") # <-- CHANGE HERE
             prompt = f"""
             You are a TOEFL content creator. Based on the theme '{task.topic_theme}', generate a single, specific speaking prompt suitable for a TOEFL Independent Speaking task.
             The prompt should ask the user to state an opinion, describe something, or compare two things, and require them to use personal examples.
@@ -114,14 +125,15 @@ class GenerateSpeakingTaskView(views.APIView):
         except SpeakingTask.DoesNotExist:
             return Response({'error': 'Task theme not found'}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
+            print(f"ERROR in GenerateSpeakingTaskView: {repr(e)}")
             return Response({'error': f"Failed to generate task: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-# --- UPDATED SUBMISSION VIEWS ---
+# --- SUBMISSION VIEWS ---
+
 class SubmitReadingView(views.APIView):
     permission_classes = [IsAuthenticated]
     def post(self, request, *args, **kwargs):
-        # This view no longer needs a task 'pk'
         user_answers = request.data.get('userAnswers', {})
         correct_answers = request.data.get('correctAnswers', {})
         score = 0
@@ -132,12 +144,9 @@ class SubmitReadingView(views.APIView):
         
         return Response({'score': score, 'total': len(correct_answers)})
 
-class SubmitSpeakingView(views.APIView): # ... same as before
+class SubmitSpeakingView(views.APIView):
     permission_classes = [IsAuthenticated]
     def post(self, request, pk, *args, **kwargs):
-        # This view doesn't need changes as evaluation is separate from generation
-        # It still needs the 'pk' to get the original topic for the prompt context
-        # The logic using AssemblyAI and VertexAI for evaluation is IDENTICAL to the previous step
         audio_file = request.FILES.get('audio')
         if not audio_file:
             return Response({'error': 'No audio file provided.'}, status=status.HTTP_400_BAD_REQUEST)
@@ -147,20 +156,41 @@ class SubmitSpeakingView(views.APIView): # ... same as before
             transcriber = aai.Transcriber()
             transcript = transcriber.transcribe(audio_file)
 
-            if transcript.status == aai.TranscriptStatus.error: return Response({'error': transcript.error}, status=status.HTTP_400_BAD_REQUEST)
-            if not transcript.text: return Response({'error': 'Could not transcribe audio.'}, status=status.HTTP_400_BAD_REQUEST)
+            if transcript.status == aai.TranscriptStatus.error: 
+                return Response({'error': transcript.error}, status=status.HTTP_400_BAD_REQUEST)
+            if not transcript.text: 
+                return Response({'error': 'Could not transcribe audio.'}, status=status.HTTP_400_BAD_REQUEST)
             
-            vertexai.init(project=os.environ.get('GCP_PROJECT_ID'), location="us-central1")
-            model = GenerativeModel("gemini-1.5-flash-001")
-            prompt = f"""You are a TOEFL speaking evaluator... The speaking theme was: "{task.topic_theme}"... The user's transcribed response is: "{transcript.text}" ..."""
+            model = genai.GenerativeModel("gemini-2.5-flash") # <-- CHANGE HERE
+            prompt = f"""
+            You are a TOEFL speaking evaluator. Your task is to provide feedback and a score for a user's response to a speaking prompt.
+
+            The speaking theme was: "{task.topic_theme}"
+
+            The user's transcribed response is:
+            "{transcript.text}"
+
+            Please provide feedback on the following criteria:
+            1.  **Delivery:** Was the speech clear and fluent? Was the pace appropriate?
+            2.  **Language Use:** How effectively was grammar and vocabulary used? Were there many errors?
+            3.  **Topic Development:** How well was the topic addressed? Was the response coherent and well-supported with examples or details?
+
+            Finally, provide an "Overall Score" on a scale from 0 to 4, where 4 is excellent. The score should be on its own line like this:
+            Overall Score: [score]/4
+            """
             
             ai_response = model.generate_content(prompt)
             feedback = ai_response.text
+            
+            score = "N/A"
             score_line = [line for line in feedback.split('\n') if "Overall Score:" in line]
-            score = score_line[0].split(':')[1].strip().split('/')[0] if score_line else "N/A"
+            if score_line:
+                score_str = score_line[0].split(':')[1].strip()
+                score = score_str.split('/')[0].strip()
 
             return Response({'feedback': feedback, 'score': score, 'transcript': transcript.text})
         except SpeakingTask.DoesNotExist:
             return Response({'error': 'Task not found'}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
+            print(f"ERROR in SubmitSpeakingView: {repr(e)}")
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

@@ -27,20 +27,35 @@ const ReadingTestPage = () => {
     const [score, setScore] = useState<number | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    
+    // --- FIX: Add state to track the ID of the currently loaded test ---
+    const [loadedTestId, setLoadedTestId] = useState<string | null>(null);
 
     useEffect(() => {
         const fetchTest = async () => {
+            // Reset state for the new test
+            setLoading(true);
+            setError('');
+            setTestData(null);
+
             try {
                 const response = await api.get(`/generate/reading/${id}/`);
                 setTestData(response.data);
+                setLoadedTestId(id!); // Mark this test ID as loaded
             } catch (err) {
                 setError('Failed to load the test. Please try again.');
             } finally {
                 setLoading(false);
             }
         };
-        fetchTest();
-    }, [id]);
+
+        // --- FIX: Only fetch if the component is loading a new test ID ---
+        // This condition prevents the re-fetch caused by React's Strict Mode.
+        if (loadedTestId !== id) {
+            fetchTest();
+        }
+
+    }, [id, loadedTestId]); // Add loadedTestId to the dependency array
 
     const handleOptionSelect = (questionId: number, optionKey: string) => {
         setUserAnswers(prev => ({ ...prev, [questionId]: optionKey }));
@@ -73,9 +88,9 @@ const ReadingTestPage = () => {
         }
     };
 
-    if (loading) return <div className={styles.centered}>Loading test...</div>;
+    // Show loading indicator when a new test is being fetched
+    if (loading || !testData) return <div className={styles.centered}>Loading test...</div>;
     if (error) return <div className={styles.centered}>{error}</div>;
-    if (!testData) return <div className={styles.centered}>No test data found.</div>;
 
     if (score !== null) {
         return (
