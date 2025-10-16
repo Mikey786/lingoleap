@@ -1,0 +1,85 @@
+.speakingTestContainer {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    background-color: #f0f2f5;
+    padding: 2rem;
+}
+
+.contentBox {
+    background: white;
+    padding: 2rem 3rem;
+    border-radius: 12px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+    width: 100%;
+    max-width: 800px;
+    text-align: center;
+}
+
+.question {
+    font-size: 1.25rem;
+    line-height: 1.6;
+    color: #333;
+    margin: 2rem 0;
+}
+
+.actionButton, .stopButton {
+    padding: 0.8rem 2rem;
+    font-size: 1rem;
+    font-weight: bold;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+.actionButton {
+    background-color: #007bff;
+    color: white;
+}
+
+.actionButton:hover {
+    background-color: #0056b3;
+}
+
+.stopButton {
+    background-color: #dc3545;
+    color: white;
+    margin-top: 1rem;
+}
+
+.timerBox {
+    margin: 2rem auto;
+    padding: 1.5rem;
+    border: 2px solid #007bff;
+    border-radius: 8px;
+    max-width: 200px;
+}
+
+.timerBox p {
+    margin: 0;
+}
+
+.timer {
+    font-size: 2.5rem;
+    font-weight: bold;
+    color: #007bff;
+}
+
+.results {
+    text-align: left;
+}
+
+.resultCard {
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.resultCard h3 {
+    margin-top: 0;
+    color: #007bff;
+}
